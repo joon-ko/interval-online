@@ -1,0 +1,23 @@
+{
+  "name": "interval-online",
+  "version": "1.0.0",
+  "description": "collaborative music-making in real time using audiovisual modules, in the browser",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joon-ko/interval-online.git"
+  },
+  "author": "joonho ko",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/joon-ko/interval-online/issues"
+  },
+  "homepage": "https://github.com/joon-ko/interval-online#readme",
+  "dependencies": {
+    "express": "^4.17.1"
+  }
+}
