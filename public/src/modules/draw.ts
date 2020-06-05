@@ -71,7 +71,7 @@ class SoundBlockHandler {
   /* Returns the earliest deployed SoundBlock that the mouse is currently over, otherwise returns
    * null. */
   getMousedOverBlock = (cursor: Point): SoundBlock => {
-    for (let block of this.blocks) {
+    for (const block of this.blocks) {
       const dx = cursor.x - block.pos.x;
       const dy = cursor.y - block.pos.y;
       if ((0 < dx && dx < block.size.width) && (0 < dy && dy < block.size.height)) {
@@ -171,7 +171,7 @@ class SoundBlockHandler {
   }
 
   draw = (): void => {
-    for (let block of this.blocks) {
+    for (const block of this.blocks) {
       block.draw();
     }
     if (this.holdPoint !== null) this.drawHold();
