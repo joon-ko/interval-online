@@ -1,5 +1,6 @@
 const canvas = <HTMLCanvasElement> document.getElementById('canvas');
 const ctx = <CanvasRenderingContext2D> canvas.getContext('2d');
+const socket = (window as any).io();
 
 interface Point {
   x: number,
@@ -140,6 +141,12 @@ class SoundBlockHandler {
     if (this.dragBlock === null && this.holdPoint !== null) {
       const [normPoint, normSize] = this.normalizeRectangle(this.holdPoint, cursor)
       this.blocks.push(new SoundBlock(normPoint, normSize, this.holdColor));
+
+      socket.emit('deploy', {
+        type: 'soundBlock',
+        info: {pos: normPoint, size: normSize}
+      });
+
       this.mousedown = false;
       this.holdPoint = null;
       this.holdSize = {width: 0, height: 0};

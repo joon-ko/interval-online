@@ -1,4 +1,4 @@
-import { soundBlockHandler } from './modules/draw.js'
+import { soundBlockHandler } from './modules/soundBlock.js'
 
 const canvas = <HTMLCanvasElement> document.getElementById('canvas')
 const ctx = <CanvasRenderingContext2D> canvas.getContext('2d')
