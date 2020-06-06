@@ -10,3 +10,7 @@ html, body {
 body {
 	font-family: Roboto, sans-serif;
 }
+
+canvas {
+	background-color: #1e1e1e;
+}

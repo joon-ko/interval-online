@@ -13,8 +13,7 @@ io.on('connection', (socket) => {
     console.log('a user disconnected')
   })
   socket.on('deploy', (data) => {
-    console.log(`type: ${data.type}`)
-    console.log(data.info)
+    socket.broadcast.emit('deploy', data)
   })
 })
 

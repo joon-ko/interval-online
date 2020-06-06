@@ -4,7 +4,8 @@
   "description": "collaborative music-making in real time using audiovisual modules, in the browser",
   "main": "app.js",
   "scripts": {
-    "start": "nodemon index.js"
+    "lint": "npx eslint . --ext .ts",
+    "start": "nodemon app.js --ext js,json --ignore public/src"
   },
   "repository": {
     "type": "git",
