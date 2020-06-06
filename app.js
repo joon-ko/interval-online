@@ -9,11 +9,18 @@ app.get('/', (req, res) => res.sendFile('index.html', {root: __dirname}))
 
 io.on('connection', (socket) => {
   console.log('a user connected')
+
   socket.on('disconnect', () => {
     console.log('a user disconnected')
   })
+
   socket.on('deploy', (data) => {
     socket.broadcast.emit('deploy', data)
+  })
+
+  socket.on('reposition', (data) => {
+    console.log('reposition event received')
+    socket.broadcast.emit('reposition', data)
   })
 })
 

@@ -15,27 +15,44 @@ interface Size {
   height: number
 }
 
-interface Payload {
+interface DeployPayload {
   type: string,
   info: any
 }
 
+interface RepositionPayload {
+  id: number,
+  pos: Point
+}
+
 class SoundBlock {
+  id: number;
   pos: Point;
   size: Size;
   color: string;
 
-  constructor(pos: Point, size: Size, color: string) {
+  constructor(id: number, pos: Point, size: Size, color: string) {
+    this.id = id;
     this.pos = pos;
     this.size = size;
     this.color = color;
   }
 
-  draw() {
+  draw = (): void => {
     ctx.beginPath();
     ctx.globalAlpha = 0.7;
     ctx.fillStyle = this.color;
     ctx.fillRect(this.pos.x, this.pos.y, this.size.width, this.size.height);
+  }
+
+  equals = (o: SoundBlock): boolean => {
+    return (
+      this.pos.x === o.pos.x
+      && this.pos.y === o.pos.y
+      && this.size.width === o.size.width
+      && this.size.height === o.size.height
+      && this.color === o.color
+    )
   }
 }
 
@@ -43,6 +60,7 @@ class SoundBlockHandler {
   socket: SocketIOClient.Socket;
 
   blocks: SoundBlock[];
+  curID: number;
 
   mousedown: boolean;
   keydown: boolean;
@@ -54,14 +72,17 @@ class SoundBlockHandler {
 
   dragBlock: SoundBlock;
   dragPoint: Point;
+  dragColor: string;
   originalPoint: Point;
   dragSize: Size;
 
   constructor() {
     this.socket = window.io();
     this.socket.on('deploy', this.onDeploy);
+    this.socket.on('reposition', this.onReposition);
 
     this.blocks = [];
+    this.curID = 0;
 
     this.mousedown = false;
     this.keydown = false;
@@ -73,6 +94,7 @@ class SoundBlockHandler {
 
     this.dragBlock = null;
     this.dragPoint = null;
+    this.dragColor = null;
     this.originalPoint = null;
     this.dragSize = {width: 0, height: 0};
   }
@@ -81,26 +103,42 @@ class SoundBlockHandler {
     this.mousedown = true;
     const cursor = this.getCursorPosition(canvas, e);
     const mousedOverBlock = this.getMousedOverBlock(cursor);
+
+    if (this.dragBlock !== null) {
+      if (this.dragBlock.color !== LIGHT_RED) {
+        const payload: RepositionPayload = {
+          id: this.dragBlock.id,
+          pos: this.dragBlock.pos
+        }
+        this.socket.emit('reposition', payload)
+
+        this.dragBlock = null;
+        this.dragPoint = null;
+        this.originalPoint = null;
+        this.dragSize = {width: 0, height: 0};
+      }
+      return;
+    }
+
     if (!this.keydown) {
       // disallow drawing a block on top of another block
       if (mousedOverBlock === null) {
-        this.holdColor = 'LIGHT_GREEN';
+        this.holdColor = LIGHT_RED;
         this.holdPoint = cursor;
         this.normPoint = cursor;
       }
-    } 
-    else {
-      if (mousedOverBlock !== null) {
-        this.dragBlock = mousedOverBlock;
-        this.dragPoint = cursor;
-        this.originalPoint = this.dragBlock.pos;
-      }
+    }
+    else if (mousedOverBlock !== null) {
+      this.dragBlock = mousedOverBlock;
+      this.dragPoint = cursor;
+      this.originalPoint = this.dragBlock.pos;
+      this.dragColor = this.dragBlock.color;
     }
   }
 
   onMouseMove = (e: MouseEvent): void => {
     const cursor = this.getCursorPosition(canvas, e);
-    if (!this.mousedown) return;
+    if (!this.mousedown && this.dragBlock === null) return;
 
     if (this.dragBlock === null && this.holdPoint !== null) {
       [this.normPoint, this.normSize] = this.normalizeRectangle(this.holdPoint, cursor)
@@ -125,12 +163,21 @@ class SoundBlockHandler {
         x: this.originalPoint.x + this.dragSize.width,
         y: this.originalPoint.y + this.dragSize.height
       };
+
+      let overlap = false;
+      for (const block of this.blocks) {
+        if (this.dragBlock.equals(block)) continue;
+        if (this.rectanglesOverlap(this.dragBlock.pos, this.dragBlock.size, block.pos, block.size)) {
+          overlap = true;
+          break;
+        }
+      }
+      this.dragBlock.color = overlap ? LIGHT_RED : this.dragColor;
     }
   }
 
-  onMouseUp = (e: MouseEvent): void => {
+  onMouseUp = (): void => {
     if (!this.mousedown) return;
-    const cursor = this.getCursorPosition(canvas, e);
 
     if (this.dragBlock === null && this.holdPoint !== null) {
       if (this.holdColor === LIGHT_GREEN) {
@@ -139,24 +186,34 @@ class SoundBlockHandler {
           ${Math.floor(Math.random() * 255)},
           ${Math.floor(Math.random() * 255)}
         )`;
-        this.blocks.push(new SoundBlock(this.normPoint, this.normSize, this.holdColor));
 
-        const payload: Payload = {
+        this.blocks.push(new SoundBlock(this.curID, this.normPoint, this.normSize, this.holdColor));
+        console.log(`added block id ${this.curID}`)
+
+        const payload: DeployPayload = {
           type: 'soundBlock',
           info: {
+            id: this.curID,
             pos: this.normPoint,
             size: this.normSize,
             color: this.holdColor
           }
         }
         this.socket.emit('deploy', payload)
+        this.curID++;
       }
 
       this.holdPoint = null;
       this.normSize = {width: 0, height: 0};
       this.holdColor = null;
     }
-    else if (this.dragBlock !== null) {
+    else if (this.dragBlock !== null && this.dragBlock.color !== LIGHT_RED) {
+      const payload: RepositionPayload = {
+        id: this.dragBlock.id,
+        pos: this.dragBlock.pos
+      }
+      this.socket.emit('reposition', payload)
+
       this.dragBlock = null;
       this.dragPoint = null;
       this.originalPoint = null;
@@ -174,9 +231,24 @@ class SoundBlockHandler {
     if (e.keyCode === 32) this.keydown = false;
   }
 
-  onDeploy = (data: Payload): void => {
+  onDeploy = (data: DeployPayload): void => {
+    let id = data.info.id;
+    console.log(`added block id ${id}`)
     const { pos, size, color } = data.info;
-    this.blocks.push(new SoundBlock(pos, size, color));
+    this.blocks.push(new SoundBlock(id, pos, size, color));
+    this.curID = ++id;
+    console.log(`the current id is now ${this.curID}`);
+  }
+
+  onReposition = (data: RepositionPayload): void => {
+    const { id, pos } = data;
+    console.log(`id: ${id}`);
+    const block = this.getBlockByID(id);
+    if (block !== null) {
+      block.pos = pos;
+    } else {
+      console.log('could not find block by id!');
+    }
   }
 
   drawHold = (): void => {
@@ -217,6 +289,14 @@ class SoundBlockHandler {
       if ((0 < dx && dx < block.size.width) && (0 < dy && dy < block.size.height)) {
         return block;
       }
+    }
+    return null;
+  }
+
+  /* Finds a block by its ID. If not found, returns null. */
+  getBlockByID = (id: number): SoundBlock => {
+    for (const block of this.blocks) {
+      if (block.id === id) return block;
     }
     return null;
   }
