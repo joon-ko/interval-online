@@ -26,7 +26,7 @@ interface RepositionPayload {
 }
 
 class SoundBlock {
-  id: number;
+  id: number; // to be referenced when editing or removing this block after deploying
   pos: Point;
   size: Size;
   color: string;
@@ -63,7 +63,7 @@ class SoundBlockHandler {
   curID: number;
 
   mousedown: boolean;
-  keydown: boolean;
+  dragMode: boolean;
 
   normPoint: Point;
   normSize: Size;
@@ -85,7 +85,7 @@ class SoundBlockHandler {
     this.curID = 0;
 
     this.mousedown = false;
-    this.keydown = false;
+    this.dragMode = false;
 
     this.normPoint = null;
     this.normSize = {width: 0, height: 0};
@@ -104,6 +104,9 @@ class SoundBlockHandler {
     const cursor = this.getCursorPosition(canvas, e);
     const mousedOverBlock = this.getMousedOverBlock(cursor);
 
+    // in the situation where a user redrags a block, moves it to an illegal space, then mouseups,
+    // the block will not release but the user can still move the block around. the block will then
+    // try deploy on the next mousedown, instead of a mouseup.
     if (this.dragBlock !== null) {
       if (this.dragBlock.color !== LIGHT_RED) {
         const payload: RepositionPayload = {
@@ -120,8 +123,8 @@ class SoundBlockHandler {
       return;
     }
 
-    if (!this.keydown) {
-      // disallow drawing a block on top of another block
+    if (!this.dragMode) {
+      // a block cannot be drawn on top of another block
       if (mousedOverBlock === null) {
         this.holdColor = LIGHT_RED;
         this.holdPoint = cursor;
@@ -129,6 +132,7 @@ class SoundBlockHandler {
       }
     }
     else if (mousedOverBlock !== null) {
+      // start dragging the currently moused over block
       this.dragBlock = mousedOverBlock;
       this.dragPoint = cursor;
       this.originalPoint = this.dragBlock.pos;
@@ -140,13 +144,16 @@ class SoundBlockHandler {
     const cursor = this.getCursorPosition(canvas, e);
     if (!this.mousedown && this.dragBlock === null) return;
 
+    // check if the hold block is able to be released
     if (this.dragBlock === null && this.holdPoint !== null) {
       [this.normPoint, this.normSize] = this.normalizeRectangle(this.holdPoint, cursor)
 
+      // a block must have a minimum size
       this.holdColor = ((this.normSize.width <= MIN_BLOCK_LENGTH)
         || (this.normSize.height <= MIN_BLOCK_LENGTH))
         ? LIGHT_RED : LIGHT_GREEN;
 
+      // a block cannot overlap another block
       for (const block of this.blocks) {
         if (this.rectanglesOverlap(this.normPoint, this.normSize, block.pos, block.size)) {
           this.holdColor = LIGHT_RED;
@@ -155,6 +162,7 @@ class SoundBlockHandler {
       }
     }
     else if (this.dragBlock !== null) {
+      // reposition the drag block to go with the mouse
       this.dragSize = {
         width: cursor.x - this.dragPoint.x,
         height: cursor.y - this.dragPoint.y
@@ -164,6 +172,7 @@ class SoundBlockHandler {
         y: this.originalPoint.y + this.dragSize.height
       };
 
+      // check if the drag block is able to be released
       let overlap = false;
       for (const block of this.blocks) {
         if (this.dragBlock.equals(block)) continue;
@@ -188,8 +197,8 @@ class SoundBlockHandler {
         )`;
 
         this.blocks.push(new SoundBlock(this.curID, this.normPoint, this.normSize, this.holdColor));
-        console.log(`added block id ${this.curID}`)
 
+        // tell all other clients to add the block along with its id
         const payload: DeployPayload = {
           type: 'soundBlock',
           info: {
@@ -207,7 +216,9 @@ class SoundBlockHandler {
       this.normSize = {width: 0, height: 0};
       this.holdColor = null;
     }
+    // release the drag block if allowed to
     else if (this.dragBlock !== null && this.dragBlock.color !== LIGHT_RED) {
+      // tell all other clients to reposition the block
       const payload: RepositionPayload = {
         id: this.dragBlock.id,
         pos: this.dragBlock.pos
@@ -224,22 +235,22 @@ class SoundBlockHandler {
   }
 
   onKeyDown = (e: KeyboardEvent): void => {
-    if (e.keyCode === 32) this.keydown = true;
+    if (e.keyCode === 32) this.dragMode = true;
   }
 
   onKeyUp = (e: KeyboardEvent): void => {
-    if (e.keyCode === 32) this.keydown = false;
+    if (e.keyCode === 32) this.dragMode = false;
   }
 
+  /* Adds a block that another user has deployed. */
   onDeploy = (data: DeployPayload): void => {
     let id = data.info.id;
-    console.log(`added block id ${id}`)
     const { pos, size, color } = data.info;
     this.blocks.push(new SoundBlock(id, pos, size, color));
     this.curID = ++id;
-    console.log(`the current id is now ${this.curID}`);
   }
 
+  /* Repositions a block that another user has moved. */
   onReposition = (data: RepositionPayload): void => {
     const { id, pos } = data;
     console.log(`id: ${id}`);
@@ -251,6 +262,7 @@ class SoundBlockHandler {
     }
   }
 
+  /* Draw the hold shape of the block before it's deployed. */
   drawHold = (): void => {
     ctx.beginPath();
     ctx.fillStyle = this.holdColor;
@@ -260,6 +272,7 @@ class SoundBlockHandler {
     );
   }
 
+  /* Draw a frame containing all blocks and the hold block. */
   draw = (): void => {
     ctx.globalAlpha = 1.0;
     for (const block of this.blocks) {
