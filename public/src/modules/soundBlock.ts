@@ -57,7 +57,12 @@ class SoundBlock {
 }
 
 class SoundBlockHandler {
+  started: boolean;
   socket: SocketIOClient.Socket;
+
+  audio: AudioContext;
+  source: OscillatorNode;
+  volume: GainNode;
 
   blocks: SoundBlock[];
   curID: number;
@@ -77,9 +82,15 @@ class SoundBlockHandler {
   dragSize: Size;
 
   constructor() {
+    this.started = false;
     this.socket = window.io();
     this.socket.on('deploy', this.onDeploy);
     this.socket.on('reposition', this.onReposition);
+
+    // audio is initialized on first mousedown
+    this.audio = null;
+    this.source = null;
+    this.volume = null;
 
     this.blocks = [];
     this.curID = 0;
@@ -100,6 +111,19 @@ class SoundBlockHandler {
   }
 
   onMouseDown = (e: MouseEvent): void => {
+    // initialize audio
+    if (!this.started) {
+      this.started = true;
+      this.audio = new AudioContext();
+      this.source = new OscillatorNode(this.audio);
+      this.volume = this.audio.createGain();
+      this.volume.gain.value = 0;
+
+      this.source.connect(this.volume);
+      this.volume.connect(this.audio.destination);
+      this.source.start();
+    }
+
     this.mousedown = true;
     const cursor = this.getCursorPosition(canvas, e);
     const mousedOverBlock = this.getMousedOverBlock(cursor);
@@ -129,6 +153,10 @@ class SoundBlockHandler {
         this.holdColor = LIGHT_RED;
         this.holdPoint = cursor;
         this.normPoint = cursor;
+      } else {
+        // play a sound for one second
+        this.volume.gain.value = 0.5;
+        this.volume.gain.setValueAtTime(0, this.audio.currentTime + 1);
       }
     }
     else if (mousedOverBlock !== null) {
