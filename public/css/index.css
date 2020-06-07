@@ -14,3 +14,11 @@ body {
 canvas {
 	background-color: #1e1e1e;
 }
+
+#info {
+	color: white;
+	position: absolute;
+	top: 10px;
+	left: 10px;
+	user-select: none;
+}

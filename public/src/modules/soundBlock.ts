@@ -16,26 +16,53 @@ interface Size {
 }
 
 interface DeployPayload {
-  type: string,
-  info: any
+  id: number,
+  pos: Point,
+  size: Size,
+  type: OscillatorType,
+  color: string
 }
 
-interface RepositionPayload {
+interface UpdatePayload {
   id: number,
-  pos: Point
+  pos?: Point,
+  type?: OscillatorType
+}
+
+interface SyncPayload {
+  curID: number,
+  blocks: Array<DeployPayload>
 }
 
 class SoundBlock {
+  audio: AudioContext;
+  source: OscillatorNode;
+  volume: GainNode;
+
   id: number; // to be referenced when editing or removing this block after deploying
   pos: Point;
   size: Size;
+  type: OscillatorType;
   color: string;
 
-  constructor(id: number, pos: Point, size: Size, color: string) {
+  constructor(
+    audio: AudioContext,
+    id: number, pos: Point, size: Size, type: OscillatorType, color: string
+  ) {
     this.id = id;
     this.pos = pos;
     this.size = size;
+    this.type = type;
     this.color = color;
+
+    // initialize audio
+    this.audio = audio;
+    this.source = new OscillatorNode(this.audio, {type: this.type});
+    this.volume = this.audio.createGain();
+    this.volume.gain.value = 0;
+    this.source.connect(this.volume);
+    this.volume.connect(this.audio.destination);
+    this.source.start();
   }
 
   draw = (): void => {
@@ -43,6 +70,25 @@ class SoundBlock {
     ctx.globalAlpha = 0.7;
     ctx.fillStyle = this.color;
     ctx.fillRect(this.pos.x, this.pos.y, this.size.width, this.size.height);
+  }
+
+  play = (): void => {
+    this.volume.gain.cancelScheduledValues(this.audio.currentTime);
+    this.volume.gain.setValueCurveAtTime([0, 0.2], this.audio.currentTime, 0.005);
+    this.volume.gain.setValueCurveAtTime([0.2, 0], this.audio.currentTime + 0.005, 0.5 - 0.005);
+  }
+
+  setType = (type: OscillatorType): void => {
+    this.type = type;
+    this.source.type = type;
+  }
+
+  renderInfo = (): string => {
+    return `
+    <div>id: ${this.id}</div>
+    <div>pos: (${this.pos.x}, ${this.pos.y})</div>
+    <div>type: ${this.type}</div>
+    `;
   }
 
   equals = (o: SoundBlock): boolean => {
@@ -61,10 +107,9 @@ class SoundBlockHandler {
   socket: SocketIOClient.Socket;
 
   audio: AudioContext;
-  source: OscillatorNode;
-  volume: GainNode;
 
   blocks: SoundBlock[];
+  currentBlock: SoundBlock;
   curID: number;
 
   mousedown: boolean;
@@ -84,15 +129,14 @@ class SoundBlockHandler {
   constructor() {
     this.started = false;
     this.socket = window.io();
+    this.socket.on('sync', this.sync);
     this.socket.on('deploy', this.onDeploy);
-    this.socket.on('reposition', this.onReposition);
+    this.socket.on('update', this.onUpdate);
 
-    // audio is initialized on first mousedown
-    this.audio = null;
-    this.source = null;
-    this.volume = null;
+    this.audio = new AudioContext();
 
     this.blocks = [];
+    this.currentBlock = null;
     this.curID = 0;
 
     this.mousedown = false;
@@ -110,18 +154,18 @@ class SoundBlockHandler {
     this.dragSize = {width: 0, height: 0};
   }
 
+  sync = (data: SyncPayload): void => {
+    data.blocks.forEach(o => {
+      const { id, pos, size, type, color } = o;
+      this.blocks.push(new SoundBlock(this.audio, id, pos, size, type, color));
+    });
+    this.curID = data.curID;
+  }
+
   onMouseDown = (e: MouseEvent): void => {
-    // initialize audio
     if (!this.started) {
       this.started = true;
-      this.audio = new AudioContext();
-      this.source = new OscillatorNode(this.audio);
-      this.volume = this.audio.createGain();
-      this.volume.gain.value = 0;
-
-      this.source.connect(this.volume);
-      this.volume.connect(this.audio.destination);
-      this.source.start();
+      this.audio.resume();
     }
 
     this.mousedown = true;
@@ -132,18 +176,7 @@ class SoundBlockHandler {
     // the block will not release but the user can still move the block around. the block will then
     // try deploy on the next mousedown, instead of a mouseup.
     if (this.dragBlock !== null) {
-      if (this.dragBlock.color !== LIGHT_RED) {
-        const payload: RepositionPayload = {
-          id: this.dragBlock.id,
-          pos: this.dragBlock.pos
-        }
-        this.socket.emit('reposition', payload)
-
-        this.dragBlock = null;
-        this.dragPoint = null;
-        this.originalPoint = null;
-        this.dragSize = {width: 0, height: 0};
-      }
+      if (this.dragBlock.color !== LIGHT_RED) this.reposition();
       return;
     }
 
@@ -153,10 +186,11 @@ class SoundBlockHandler {
         this.holdColor = LIGHT_RED;
         this.holdPoint = cursor;
         this.normPoint = cursor;
+
+        this.currentBlock = null;
       } else {
-        // play a sound for one second
-        this.volume.gain.value = 0.5;
-        this.volume.gain.setValueAtTime(0, this.audio.currentTime + 1);
+        this.currentBlock = mousedOverBlock;
+        this.currentBlock.play();
       }
     }
     else if (mousedOverBlock !== null) {
@@ -165,6 +199,8 @@ class SoundBlockHandler {
       this.dragPoint = cursor;
       this.originalPoint = this.dragBlock.pos;
       this.dragColor = this.dragBlock.color;
+
+      this.currentBlock = mousedOverBlock;
     }
   }
 
@@ -224,17 +260,19 @@ class SoundBlockHandler {
           ${Math.floor(Math.random() * 255)}
         )`;
 
-        this.blocks.push(new SoundBlock(this.curID, this.normPoint, this.normSize, this.holdColor));
+        const newBlock = new SoundBlock(
+          this.audio, this.curID, this.normPoint, this.normSize, 'sine', this.holdColor
+        );
+        this.blocks.push(newBlock);
+        this.currentBlock = newBlock;
 
         // tell all other clients to add the block along with its id
         const payload: DeployPayload = {
-          type: 'soundBlock',
-          info: {
-            id: this.curID,
-            pos: this.normPoint,
-            size: this.normSize,
-            color: this.holdColor
-          }
+          id: this.curID,
+          pos: this.normPoint,
+          size: this.normSize,
+          type: 'sine',
+          color: this.holdColor
         }
         this.socket.emit('deploy', payload)
         this.curID++;
@@ -246,24 +284,31 @@ class SoundBlockHandler {
     }
     // release the drag block if allowed to
     else if (this.dragBlock !== null && this.dragBlock.color !== LIGHT_RED) {
-      // tell all other clients to reposition the block
-      const payload: RepositionPayload = {
-        id: this.dragBlock.id,
-        pos: this.dragBlock.pos
-      }
-      this.socket.emit('reposition', payload)
-
-      this.dragBlock = null;
-      this.dragPoint = null;
-      this.originalPoint = null;
-      this.dragSize = {width: 0, height: 0};
+      this.reposition();
     }
 
     this.mousedown = false;
   }
 
   onKeyDown = (e: KeyboardEvent): void => {
-    if (e.keyCode === 32) this.dragMode = true;
+    const keycode = e.keyCode;
+
+    if (keycode === 32) this.dragMode = true;
+
+    const waveType = this.choose(
+      keycode,
+      [65, 83, 68, 70], // A, S, D, F
+      ['sine', 'square', 'sawtooth', 'triangle']
+    );
+    if (waveType !== null && this.currentBlock !== null) {
+      this.currentBlock.setType(waveType);
+
+      const payload: UpdatePayload = {
+        id: this.currentBlock.id,
+        type: this.currentBlock.type
+      }
+      this.socket.emit('update', payload)
+    }
   }
 
   onKeyUp = (e: KeyboardEvent): void => {
@@ -272,19 +317,20 @@ class SoundBlockHandler {
 
   /* Adds a block that another user has deployed. */
   onDeploy = (data: DeployPayload): void => {
-    let id = data.info.id;
-    const { pos, size, color } = data.info;
-    this.blocks.push(new SoundBlock(id, pos, size, color));
-    this.curID = ++id;
+    if (this.audio === null) this.audio = new AudioContext();
+
+    const { id, pos, size, type, color } = data;
+    this.blocks.push(new SoundBlock(this.audio, id, pos, size, type, color));
+    this.curID = id + 1;
   }
 
   /* Repositions a block that another user has moved. */
-  onReposition = (data: RepositionPayload): void => {
-    const { id, pos } = data;
-    console.log(`id: ${id}`);
+  onUpdate = (data: UpdatePayload): void => {
+    const { id, pos, type } = data;
     const block = this.getBlockByID(id);
     if (block !== null) {
-      block.pos = pos;
+      if (pos !== undefined) block.pos = pos;
+      if (type !== undefined) block.setType(type);
     } else {
       console.log('could not find block by id!');
     }
@@ -307,6 +353,22 @@ class SoundBlockHandler {
       block.draw();
     }
     if (this.holdPoint !== null) this.drawHold();
+    document.getElementById('info').innerHTML =
+      (this.currentBlock !== null) ? this.currentBlock.renderInfo() : '';
+  }
+
+  /* Emits an event to reposition the currently dragged block. */
+  reposition = (): void => {
+    const payload: UpdatePayload = {
+      id: this.dragBlock.id,
+      pos: this.dragBlock.pos
+    }
+    this.socket.emit('update', payload)
+
+    this.dragBlock = null;
+    this.dragPoint = null;
+    this.originalPoint = null;
+    this.dragSize = {width: 0, height: 0};
   }
 
   /********************/
@@ -359,6 +421,15 @@ class SoundBlockHandler {
     if (p1.x >= p2.x + s2.width || p2.x >= p1.x + s1.width) return false;
     if (p1.y >= p2.y + s2.height || p2.y >= p1.y + s1.height) return false;
     return true;
+  }
+
+  /* Utility function to easily select a value that's less verbose than a switch statement. */
+  choose = (target: any, match: Array<any>, value: Array<any>): any => {
+    if (match.length !== value.length) return null;
+    for (let i=0; i<=match.length; i++) {
+      if (target === match[i]) return value[i];
+    }
+    return null;
   }
 }
 
