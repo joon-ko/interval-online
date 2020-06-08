@@ -1,38 +1,13 @@
+import {
+  Point, Size, DeployPayload, UpdatePayload, SyncPayload
+} from '../../interfaces';
+
 const canvas = <HTMLCanvasElement> document.getElementById('canvas');
 const ctx = <CanvasRenderingContext2D> canvas.getContext('2d');
 
 const MIN_BLOCK_LENGTH = 25;
 const LIGHT_GREEN = `rgb(145, 242, 138)`;
 const LIGHT_RED = `rgb(242, 138, 145)`;
-
-interface Point {
-  x: number,
-  y: number
-}
-
-interface Size {
-  width: number,
-  height: number
-}
-
-interface DeployPayload {
-  id: number,
-  pos: Point,
-  size: Size,
-  type: OscillatorType,
-  color: string
-}
-
-interface UpdatePayload {
-  id: number,
-  pos?: Point,
-  type?: OscillatorType
-}
-
-interface SyncPayload {
-  curID: number,
-  blocks: Array<DeployPayload>
-}
 
 class SoundBlock {
   audio: AudioContext;

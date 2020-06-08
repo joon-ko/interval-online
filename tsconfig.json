@@ -1,10 +1,14 @@
 {
     "compilerOptions": {
-        "outDir": "./public/built",
+        "outDir": "./public",
         "allowJs": true,
         "target": "ESNext"
     },
     "include": [
-        "./public/src/**/*"
+        "./src/**/*",
+    ],
+    "exclude": [
+        "./src/server/*",
+        "./src/types/*"
     ]
 }
