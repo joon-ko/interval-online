@@ -1,5 +1,5 @@
 import {
-	Point, Size, DeployPayload, UpdatePayload, SyncPayload
+  DeployPayload, UpdatePayload, SyncPayload
 } from '../interfaces';
 
 const express = require('express')
@@ -11,7 +11,7 @@ const port = 3000
 app.use(express.static('public'))
 app.get('/', (req, res) => res.sendFile('index.html', {root: __dirname}))
 
-let blocks: Array<DeployPayload> = [];
+const blocks: Array<DeployPayload> = [];
 let curID = 0;
 
 /* Finds a block by its ID. If not found, returns null. */
