@@ -13,13 +13,15 @@ interface DeployPayload {
   pos: Point,
   size: Size,
   type: OscillatorType,
+  key: number,
   color: string
 }
 
 interface UpdatePayload {
   id: number,
   pos?: Point,
-  type?: OscillatorType
+  type?: OscillatorType,
+  key?: number
 }
 
 interface SyncPayload {

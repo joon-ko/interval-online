@@ -1,11 +1,14 @@
 import {
   Point, Size, DeployPayload, UpdatePayload, SyncPayload
 } from '../../interfaces';
+import { pitchMap } from '../pitches.js'
 
 const canvas = <HTMLCanvasElement> document.getElementById('canvas');
 const ctx = <CanvasRenderingContext2D> canvas.getContext('2d');
 
 const MIN_BLOCK_LENGTH = 25;
+const MIN_PIANO_KEY = 16;
+const MAX_PIANO_KEY = 76;
 const LIGHT_GREEN = `rgb(145, 242, 138)`;
 const LIGHT_RED = `rgb(242, 138, 145)`;
 
@@ -18,21 +21,29 @@ class SoundBlock {
   pos: Point;
   size: Size;
   type: OscillatorType;
+  key: number;
+  frequency: number;
   color: string;
 
   constructor(
     audio: AudioContext,
-    id: number, pos: Point, size: Size, type: OscillatorType, color: string
+    id: number, pos: Point, size: Size,
+    type: OscillatorType, key: number, color: string
   ) {
     this.id = id;
     this.pos = pos;
     this.size = size;
     this.type = type;
+    this.key = key;
+    this.frequency = this.keyToFrequency(this.key)
     this.color = color;
 
     // initialize audio
     this.audio = audio;
-    this.source = new OscillatorNode(this.audio, {type: this.type});
+    this.source = new OscillatorNode(this.audio, {
+      type: this.type,
+      frequency: this.frequency
+    });
     this.volume = this.audio.createGain();
     this.volume.gain.value = 0;
     this.source.connect(this.volume);
@@ -60,11 +71,12 @@ class SoundBlock {
 
   renderInfo = (): string => {
     return `
-    <div>id: ${this.id}</div>
-    <div>pos: (${this.pos.x}, ${this.pos.y})</div>
+    <div>pitch: ${pitchMap.get(this.key)}</div>
     <div>type: ${this.type}</div>
     `;
   }
+
+  keyToFrequency = (key: number): number => Math.pow(Math.pow(2, 1/12), key - 49) * 440
 
   equals = (o: SoundBlock): boolean => {
     return (
@@ -86,6 +98,7 @@ class SoundBlockHandler {
   blocks: SoundBlock[];
   currentBlock: SoundBlock;
   curID: number;
+  curKey: number;
 
   mousedown: boolean;
   dragMode: boolean;
@@ -113,6 +126,7 @@ class SoundBlockHandler {
     this.blocks = [];
     this.currentBlock = null;
     this.curID = 0;
+    this.curKey = 49;
 
     this.mousedown = false;
     this.dragMode = false;
@@ -132,7 +146,9 @@ class SoundBlockHandler {
   sync = (data: SyncPayload): void => {
     data.blocks.forEach(o => {
       const { id, pos, size, type, color } = o;
-      this.blocks.push(new SoundBlock(this.audio, id, pos, size, type, color));
+      this.blocks.push(
+        new SoundBlock(this.audio, id, pos, size, type, this.curKey, color)
+      );
     });
     this.curID = data.curID;
   }
@@ -236,7 +252,8 @@ class SoundBlockHandler {
         )`;
 
         const newBlock = new SoundBlock(
-          this.audio, this.curID, this.normPoint, this.normSize, 'sine', this.holdColor
+          this.audio, this.curID, this.normPoint, this.normSize,
+          'sine', this.curKey, this.holdColor
         );
         this.blocks.push(newBlock);
         this.currentBlock = newBlock;
@@ -247,6 +264,7 @@ class SoundBlockHandler {
           pos: this.normPoint,
           size: this.normSize,
           type: 'sine',
+          key: this.curKey,
           color: this.holdColor
         }
         this.socket.emit('deploy', payload)
@@ -268,7 +286,12 @@ class SoundBlockHandler {
   onKeyDown = (e: KeyboardEvent): void => {
     const keycode = e.keyCode;
 
+    // spacebar
     if (keycode === 32) this.dragMode = true;
+
+    // left and right
+    if (keycode === 37) this.curKey--;
+    if (keycode === 39) this.curKey++;
 
     const waveType = this.choose(
       keycode,
@@ -280,7 +303,8 @@ class SoundBlockHandler {
 
       const payload: UpdatePayload = {
         id: this.currentBlock.id,
-        type: this.currentBlock.type
+        type: this.currentBlock.type,
+        key: this.currentBlock.key
       }
       this.socket.emit('update', payload)
     }
@@ -294,8 +318,10 @@ class SoundBlockHandler {
   onDeploy = (data: DeployPayload): void => {
     if (this.audio === null) this.audio = new AudioContext();
 
-    const { id, pos, size, type, color } = data;
-    this.blocks.push(new SoundBlock(this.audio, id, pos, size, type, color));
+    const { id, pos, size, type, key, color } = data;
+    this.blocks.push(
+      new SoundBlock(this.audio, id, pos, size, type, key, color)
+    );
     this.curID = id + 1;
   }
 
@@ -328,8 +354,12 @@ class SoundBlockHandler {
       block.draw();
     }
     if (this.holdPoint !== null) this.drawHold();
-    document.getElementById('info').innerHTML =
-      (this.currentBlock !== null) ? this.currentBlock.renderInfo() : '';
+
+    document.getElementById('info').innerHTML = `
+      <div>key: ${pitchMap.get(this.curKey)}</div>
+      <br>
+      ${(this.currentBlock !== null) ? this.currentBlock.renderInfo() : ''}
+    `
   }
 
   /* Emits an event to reposition the currently dragged block. */
@@ -408,6 +438,4 @@ class SoundBlockHandler {
   }
 }
 
-const soundBlockHandler = new SoundBlockHandler();
-
-export { soundBlockHandler }
+export const soundBlockHandler = new SoundBlockHandler();
